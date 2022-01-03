@@ -1,12 +1,12 @@
 import logging
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 
 
 def load_vocab(vocab_path):
     token_dict = {}
-    with open(vocab_path, encoding="utf8") as f:
+    with open(vocab_path, encoding='utf8') as f:
         for index, line in enumerate(f):
             token = line.strip()
             token_dict[token] = index
@@ -44,7 +44,7 @@ class DataGenerator:
                 for item in self.data[i][kind]:  # 遍历内容
                     if item not in self.vocab:
                         self.vocab.append(item)
-        writer = open(self.config['vocab_path'], "w", encoding='utf8')
+        writer = open(self.config['vocab_path'], 'w', encoding='utf8')
         for item in ['[PAD]', '[BOS]', '[EOS]', '[UNK]']:
             writer.write(item + '\n')
         for item in self.vocab:
@@ -76,7 +76,14 @@ class DataGenerator:
             self.seq.append([torch.LongTensor(input_seq),
                              torch.LongTensor(output_seq),
                              torch.LongTensor(gold)])
-        self.seq = self.seq[:1000]  # 测试用只用100个
+        self.seq = self.seq[:5000]  # 测试用只用100个
+
+    def load_pred(self, input):
+        # print(input)
+        input_list = self.str2list(input)
+        # print(input_list)
+        input_seq = self.encode_sentence(input_list, self.config['input_max_length'])
+        return torch.LongTensor(input_seq)
 
     def load(self, path):
         with open(path, encoding='utf8') as lines:
@@ -87,7 +94,7 @@ class DataGenerator:
                 cn = line[1]
                 cn = self.str2list(cn, en_kind=False)
                 self.data.append([en, cn])
-        self.logger.info('从数据量：%d' % len(self.data))
+        self.logger.info('总数据量：%d' % len(self.data))
         self.data2vocab()
         self.vocab = load_vocab(self.config['vocab_path'])
         self.data2seq()
@@ -102,20 +109,34 @@ class DataGenerator:
 
 def load_data(config, logger):
     dg = DataGenerator(config, logger)
-    dl = DataLoader(dg, batch_size=config["batch_size"])
-    return dl
+    train_size = int(0.8 * len(dg))
+    test_size = len(dg) - train_size
+    train_dataset, test_dataset = random_split(dg, [train_size, test_size])
+    train_dataset = DataLoader(train_dataset, batch_size=config['batch_size'])
+    test_dataset = DataLoader(test_dataset, batch_size=config['batch_size'])
+    return train_dataset, test_dataset
 
 
 if __name__ == '__main__':
     import sys
 
-    sys.path.append("..")
+    sys.path.append('..')
     from config import config
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
 
-    config["data_path"] = "../data/cmn.txt"
-    config["vocab_path"] = "../data/vocab.txt"
+    config['data_path'] = '../data/cmn.txt'
+    config['vocab_path'] = '../data/vocab.txt'
 
-    dl = load_data(config, logger)
+    # # 检查数据样式
+    # train_dataset, test_dataset = load_data(config, logger)
+    # for dataset in [train_dataset, test_dataset]:
+    #     for x, y, gold in dataset:
+    #         break
+    #     print(len(dataset))
+    #     print(x.shape, y.shape, gold.shape)
+
+    # 测试独立一个句子编码
+    dg = DataGenerator(config, logger)
+    input_seq = dg.load_pred('hello hello.')

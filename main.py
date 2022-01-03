@@ -29,44 +29,45 @@ logger = logging.getLogger(__name__)
 # torch.cuda.manual_seed_all(seed)
 
 def choose_optimizer(config, model):
-    optimizer = config["optimizer"]
-    learning_rate = config["learning_rate"]
-    if optimizer == "adam":
+    optimizer = config['optimizer']
+    learning_rate = config['learning_rate']
+    if optimizer == 'adam':
         return torch.optim.Adam(model.parameters(), lr=learning_rate)
-    elif optimizer == "sgd":
+    elif optimizer == 'sgd':
         return torch.optim.SGD(model.parameters(), lr=learning_rate)
 
 
 def main(config):
     # 创建保存模型的目录
-    if not os.path.isdir(config["model_path"]):
-        os.mkdir(config["model_path"])
+    if not os.path.exists(config['model_path']):
+        os.makedirs(config['model_path'])
     # 加载模型
     logger.info(json.dumps(config, ensure_ascii=False, indent=2))
-    model = Transformer(config["vocab_size"], config["vocab_size"], 0, 0,
+    model = Transformer(config['vocab_size'], config['vocab_size'], 0, 0,
                         d_word_vec=128, d_model=128, d_inner=256,
                         n_layers=1, n_head=2, d_k=64, d_v=64,
                         )
     # 标识是否使用gpu
     cuda_flag = torch.cuda.is_available()
     if cuda_flag:
-        logger.info("gpu可以使用，迁移模型至gpu")
+        logger.info('gpu可以使用，迁移模型至gpu')
         model = model.cuda()
     # 加载优化器
     optimizer = choose_optimizer(config, model)
     # 加载训练数据
-    train_data = load_data(config, logger)
+    train_data, test_data = load_data(config, logger)
     # 加载效果测试类
-    evaluator = Evaluator(config, model, logger)
+    evaluator = Evaluator(config, model, logger, train_data, test_data)
     # 加载loss
     loss_func = torch.nn.CrossEntropyLoss(ignore_index=0)
     # 训练
-    for epoch in range(config["epoch"]):
+    ts, score_avgs, losses = [], [], []
+    for epoch in range(config['epoch']):
         epoch += 1
         model.train()
         if cuda_flag:
             model.cuda()
-        logger.info("epoch %d begin" % epoch)
+        logger.info('epoch %d begin' % epoch)
         train_loss = []
         for index, batch_data in enumerate(train_data):
             if cuda_flag:
@@ -79,12 +80,20 @@ def main(config):
             optimizer.step()
             optimizer.zero_grad()
 
-        logger.info("epoch average loss: %f" % np.mean(train_loss))
-        evaluator.eval(epoch)
-    model_path = os.path.join(config["model_path"], "epoch_%d.pth" % epoch)
+        logger.info('epoch average loss: %f' % np.mean(train_loss))
+        score_avg = evaluator.eval(epoch)
+        t = evaluator.eval_t(epoch)
+        score_avgs.append(score_avg*100)
+        ts.append(t*100)
+        losses.append(np.mean(train_loss))
+
+    evaluator.plot_and_save(epoch, ts, score_avgs, losses)
+    model_path = os.path.join(config['model_path'], 'epoch_%d.pth' % epoch)
     torch.save(model.state_dict(), model_path)
     return
 
 
-if __name__ == "__main__":
-    main(config)
+if __name__ == '__main__':
+    for lr in [1e-3]:
+        config['learning_rate'] = lr
+        main(config)
